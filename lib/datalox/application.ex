@@ -5,7 +5,8 @@ defmodule Datalox.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Registry, keys: :unique, name: Datalox.Registry}
+      {Registry, keys: :unique, name: Datalox.Registry},
+      Datalox.Metrics
     ]
 
     opts = [strategy: :one_for_one, name: Datalox.Supervisor]

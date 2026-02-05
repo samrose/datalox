@@ -25,6 +25,7 @@ defmodule Datalox do
   """
 
   alias Datalox.Database
+  alias Datalox.Explain
 
   @doc """
   Creates a new Datalox database.
@@ -156,6 +157,75 @@ defmodule Datalox do
     with :ok <- assert_all(db, facts),
          :ok <- Database.load_rules(db, rules) do
       :ok
+    end
+  end
+
+  @doc """
+  Loads facts and rules from a .dl file.
+
+  ## Examples
+
+      Datalox.load_file(db, "rules/access_control.dl")
+
+  """
+  @spec load_file(pid() | atom(), String.t()) :: :ok | {:error, term()}
+  def load_file(db, path) do
+    alias Datalox.Parser.Parser
+
+    case Parser.parse_file(path) do
+      {:ok, statements} ->
+        {facts, rules} = Enum.split_with(statements, fn
+          {:fact, _} -> true
+          {:rule, _} -> false
+        end)
+
+        fact_tuples = Enum.map(facts, fn {:fact, f} -> f end)
+        rule_structs = Enum.map(rules, fn {:rule, r} -> r end)
+
+        with :ok <- assert_all(db, fact_tuples),
+             :ok <- Database.load_rules(db, rule_structs) do
+          :ok
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Explains how a fact was derived.
+
+  Returns an explanation showing the derivation tree.
+
+  ## Examples
+
+      explanation = Datalox.explain(db, {:ancestor, ["alice", "carol"]})
+      explanation.fact       # => {:ancestor, ["alice", "carol"]}
+      explanation.derivation # => :base or list of sub-derivations
+
+  """
+  @spec explain(pid() | atom(), {atom(), list()}) :: Explain.t() | nil
+  def explain(db, {predicate, _pattern} = fact) do
+    if exists?(db, fact) do
+      # Check if the predicate has rules (is derived)
+      rules = Database.get_rules(db)
+      derived_predicates = rules
+        |> Enum.map(fn rule -> elem(rule.head, 0) end)
+        |> MapSet.new()
+
+      if MapSet.member?(derived_predicates, predicate) do
+        # This is a derived fact - find the matching rule
+        matching_rule = Enum.find(rules, fn rule -> elem(rule.head, 0) == predicate end)
+        rule_name = elem(matching_rule.head, 0)
+        # Full derivation tracking would require storing derivation info in the evaluator
+        # For now, we return a derived explanation with empty sub-derivations
+        Explain.derived(fact, rule_name, [])
+      else
+        # This is a base fact
+        Explain.base(fact)
+      end
+    else
+      nil
     end
   end
 end

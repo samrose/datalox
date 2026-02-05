@@ -88,6 +88,14 @@ defmodule Datalox.Database do
     GenServer.stop(resolve(db))
   end
 
+  @doc """
+  Returns the rules loaded in the database.
+  """
+  @spec get_rules(t() | atom()) :: [Rule.t()]
+  def get_rules(db) do
+    GenServer.call(resolve(db), :get_rules)
+  end
+
   # Server Callbacks
 
   @impl true
@@ -134,6 +142,9 @@ defmodule Datalox.Database do
 
   @impl true
   def handle_call({:query, predicate, pattern}, _from, state) do
+    # Record query metrics
+    Datalox.Metrics.record_query(state.name, predicate)
+
     case state.storage_mod.lookup(state.storage_state, predicate, pattern) do
       {:ok, results} ->
         tagged_results = Enum.map(results, fn tuple -> {predicate, tuple} end)
@@ -163,6 +174,16 @@ defmodule Datalox.Database do
       {:error, reason} ->
         {:reply, {:error, reason}, state}
     end
+  end
+
+  @impl true
+  def handle_call(:get_rules, _from, state) do
+    {:reply, state.rules, state}
+  end
+
+  @impl true
+  def handle_call(:get_name, _from, state) do
+    {:reply, {:ok, state.name}, state}
   end
 
   @impl true
