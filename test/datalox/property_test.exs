@@ -2,8 +2,8 @@ defmodule Datalox.PropertyTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
 
-  alias Datalox.Rule
   alias Datalox.Optimizer.Stratifier
+  alias Datalox.Rule
 
   # Generators
   defp atom_generator do

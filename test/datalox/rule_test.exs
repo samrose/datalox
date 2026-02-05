@@ -93,7 +93,7 @@ defmodule Datalox.RuleTest do
     end
   end
 
-  describe "is_recursive?/1" do
+  describe "recursive?/1" do
     test "detects recursive rules" do
       rule =
         Rule.new(
@@ -101,7 +101,7 @@ defmodule Datalox.RuleTest do
           [{:parent, [:X, :Y]}, {:ancestor, [:Y, :Z]}]
         )
 
-      assert Rule.is_recursive?(rule)
+      assert Rule.recursive?(rule)
     end
 
     test "detects non-recursive rules" do
@@ -111,7 +111,7 @@ defmodule Datalox.RuleTest do
           [{:user, [:User, :Role]}, {:permission, [:Role, :Resource]}]
         )
 
-      refute Rule.is_recursive?(rule)
+      refute Rule.recursive?(rule)
     end
   end
 end

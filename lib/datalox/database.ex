@@ -11,7 +11,7 @@ defmodule Datalox.Database do
 
   use GenServer
 
-  alias Datalox.{Storage, Rule, Evaluator}
+  alias Datalox.{Evaluator, Rule, Storage}
 
   @type t :: pid()
 

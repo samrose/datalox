@@ -154,9 +154,8 @@ defmodule Datalox do
     facts = module.__datalox_facts__()
     rules = module.__datalox_rules__()
 
-    with :ok <- assert_all(db, facts),
-         :ok <- Database.load_rules(db, rules) do
-      :ok
+    with :ok <- assert_all(db, facts) do
+      Database.load_rules(db, rules)
     end
   end
 
@@ -183,9 +182,8 @@ defmodule Datalox do
         fact_tuples = Enum.map(facts, fn {:fact, f} -> f end)
         rule_structs = Enum.map(rules, fn {:rule, r} -> r end)
 
-        with :ok <- assert_all(db, fact_tuples),
-             :ok <- Database.load_rules(db, rule_structs) do
-          :ok
+        with :ok <- assert_all(db, fact_tuples) do
+          Database.load_rules(db, rule_structs)
         end
 
       {:error, _} = error ->
@@ -206,29 +204,28 @@ defmodule Datalox do
 
   """
   @spec explain(pid() | atom(), {atom(), list()}) :: Explain.t() | nil
-  def explain(db, {predicate, _pattern} = fact) do
+  def explain(db, {_predicate, _pattern} = fact) do
     if exists?(db, fact) do
-      # Check if the predicate has rules (is derived)
-      rules = Database.get_rules(db)
-
-      derived_predicates =
-        rules
-        |> Enum.map(fn rule -> elem(rule.head, 0) end)
-        |> MapSet.new()
-
-      if MapSet.member?(derived_predicates, predicate) do
-        # This is a derived fact - find the matching rule
-        matching_rule = Enum.find(rules, fn rule -> elem(rule.head, 0) == predicate end)
-        rule_name = elem(matching_rule.head, 0)
-        # Full derivation tracking would require storing derivation info in the evaluator
-        # For now, we return a derived explanation with empty sub-derivations
-        Explain.derived(fact, rule_name, [])
-      else
-        # This is a base fact
-        Explain.base(fact)
-      end
+      explain_fact(db, fact)
     else
       nil
+    end
+  end
+
+  defp explain_fact(db, {predicate, _pattern} = fact) do
+    rules = Database.get_rules(db)
+
+    derived_predicates =
+      rules
+      |> Enum.map(fn rule -> elem(rule.head, 0) end)
+      |> MapSet.new()
+
+    if MapSet.member?(derived_predicates, predicate) do
+      matching_rule = Enum.find(rules, fn rule -> elem(rule.head, 0) == predicate end)
+      rule_name = elem(matching_rule.head, 0)
+      Explain.derived(fact, rule_name, [])
+    else
+      Explain.base(fact)
     end
   end
 end

@@ -54,7 +54,7 @@ defmodule Datalox.Optimizer.MagicSetsTest do
           pred == :magic_ancestor
         end)
 
-      assert length(magic_rules) >= 1
+      assert magic_rules != []
     end
   end
 

@@ -87,25 +87,25 @@ defmodule Datalox.Rule do
   @doc """
   Returns true if the rule is recursive (head predicate appears in body).
   """
-  @spec is_recursive?(t()) :: boolean()
-  def is_recursive?(%__MODULE__{head: {head_pred, _}, body: body}) do
+  @spec recursive?(t()) :: boolean()
+  def recursive?(%__MODULE__{head: {head_pred, _}, body: body}) do
     Enum.any?(body, fn {pred, _} -> pred == head_pred end)
   end
 
   # Extract variables from a goal, filtering out wildcards (:_)
   defp extract_variables({_predicate, terms}) do
     terms
-    |> Enum.filter(&is_variable?/1)
+    |> Enum.filter(&variable?/1)
     |> Enum.reject(&(&1 == :_))
   end
 
   # A term is a variable if it's an uppercase atom
-  defp is_variable?(term) when is_atom(term) do
+  defp variable?(term) when is_atom(term) do
     term
     |> Atom.to_string()
     |> String.first()
     |> String.match?(~r/^[A-Z_]$/)
   end
 
-  defp is_variable?(_), do: false
+  defp variable?(_), do: false
 end

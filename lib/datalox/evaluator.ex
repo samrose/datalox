@@ -7,8 +7,8 @@ defmodule Datalox.Evaluator do
   the previous iteration (delta facts).
   """
 
-  alias Datalox.Rule
   alias Datalox.Optimizer.Stratifier
+  alias Datalox.Rule
 
   @type fact :: {atom(), list()}
   @type storage :: any()
@@ -157,17 +157,19 @@ defmodule Datalox.Evaluator do
 
   defp filter_negations(bindings, negations, storage, storage_mod) do
     Enum.filter(bindings, fn binding ->
-      Enum.all?(negations, fn {pred, terms} ->
-        pattern = Enum.map(terms, fn term -> substitute(term, binding) end)
-        {:ok, results} = storage_mod.lookup(storage, pred, pattern)
-        Enum.empty?(results)
-      end)
+      Enum.all?(negations, &negation_absent?(&1, binding, storage, storage_mod))
     end)
+  end
+
+  defp negation_absent?({pred, terms}, binding, storage, storage_mod) do
+    pattern = Enum.map(terms, fn term -> substitute(term, binding) end)
+    {:ok, results} = storage_mod.lookup(storage, pred, pattern)
+    Enum.empty?(results)
   end
 
   # Substitute variables in term using binding
   defp substitute(term, binding) when is_atom(term) do
-    if is_variable?(term) do
+    if variable?(term) do
       Map.get(binding, term, :_)
     else
       term
@@ -189,7 +191,7 @@ defmodule Datalox.Evaluator do
   defp unify_one(:_, _value, binding), do: {:ok, binding}
 
   defp unify_one(term, value, binding) when is_atom(term) do
-    if is_variable?(term) do
+    if variable?(term) do
       case Map.fetch(binding, term) do
         {:ok, ^value} -> {:ok, binding}
         {:ok, _other} -> :fail
@@ -211,7 +213,7 @@ defmodule Datalox.Evaluator do
   end
 
   defp substitute_value(term, binding) when is_atom(term) do
-    if is_variable?(term) do
+    if variable?(term) do
       Map.fetch!(binding, term)
     else
       term
@@ -221,10 +223,8 @@ defmodule Datalox.Evaluator do
   defp substitute_value(term, _binding), do: term
 
   # Check if term is a variable (uppercase atom)
-  defp is_variable?(term) when is_atom(term) do
+  defp variable?(term) when is_atom(term) do
     str = Atom.to_string(term)
     String.match?(str, ~r/^[A-Z]/)
   end
-
-  defp is_variable?(_), do: false
 end
