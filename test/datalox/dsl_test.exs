@@ -6,8 +6,8 @@ defmodule Datalox.DSLTest do
       defmodule TestFacts do
         use Datalox.DSL
 
-        deffact user("alice", :admin)
-        deffact user("bob", :viewer)
+        deffact(user("alice", :admin))
+        deffact(user("bob", :viewer))
       end
 
       facts = TestFacts.__datalox_facts__()
@@ -69,8 +69,8 @@ defmodule Datalox.DSLTest do
       defmodule IntegrationRules do
         use Datalox.DSL
 
-        deffact parent("alice", "bob")
-        deffact parent("bob", "carol")
+        deffact(parent("alice", "bob"))
+        deffact(parent("bob", "carol"))
 
         defrule ancestor(x, y) do
           parent(x, y)

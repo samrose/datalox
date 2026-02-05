@@ -8,6 +8,7 @@ defmodule Datalox.SubscriptionTest do
       {:ok, sub} = Subscription.start_link([])
 
       test_pid = self()
+
       Subscription.subscribe(sub, {:user, [:_, :_]}, fn fact ->
         send(test_pid, {:fact_added, fact})
       end)
@@ -21,6 +22,7 @@ defmodule Datalox.SubscriptionTest do
       {:ok, sub} = Subscription.start_link([])
 
       test_pid = self()
+
       Subscription.subscribe(sub, {:user, [:_, :admin]}, fn fact ->
         send(test_pid, {:admin_added, fact})
       end)

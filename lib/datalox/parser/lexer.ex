@@ -13,6 +13,7 @@ defmodule Datalox.Parser.Lexer do
 
   # Atoms (lowercase identifiers)
   atom_chars = ascii_string([?a..?z, ?A..?Z, ?0..?9, ?_], min: 0)
+
   atom_token =
     ascii_char([?a..?z])
     |> concat(atom_chars)
@@ -68,22 +69,23 @@ defmodule Datalox.Parser.Lexer do
   implies = string(":-") |> replace(:implies)
 
   # Token - order matters! Keywords before atoms, longer punctuation before shorter
-  token = choice([
-    whitespace,
-    comment,
-    not_keyword,
-    implies,
-    lparen,
-    rparen,
-    comma,
-    dot,
-    string_token,
-    integer_token,
-    wildcard_token,
-    underscore_var_token,
-    var_token,
-    atom_token
-  ])
+  token =
+    choice([
+      whitespace,
+      comment,
+      not_keyword,
+      implies,
+      lparen,
+      rparen,
+      comma,
+      dot,
+      string_token,
+      integer_token,
+      wildcard_token,
+      underscore_var_token,
+      var_token,
+      atom_token
+    ])
 
-  defparsec :tokenize, repeat(token) |> eos()
+  defparsec(:tokenize, repeat(token) |> eos())
 end

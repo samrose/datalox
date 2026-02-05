@@ -15,6 +15,7 @@ defmodule Datalox.ExplainTest do
         Datalox.Rule.new({:ancestor, [:X, :Y]}, [{:parent, [:X, :Y]}]),
         Datalox.Rule.new({:ancestor, [:X, :Z]}, [{:parent, [:X, :Y]}, {:ancestor, [:Y, :Z]}])
       ]
+
       Datalox.Database.load_rules(db, rules)
 
       on_exit(fn -> catch_exit(Datalox.stop(db)) end)

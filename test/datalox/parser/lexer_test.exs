@@ -8,17 +8,37 @@ defmodule Datalox.Parser.LexerTest do
       input = ~s|user("alice", admin).|
       {:ok, tokens, "", _, _, _} = Lexer.tokenize(input)
 
-      assert [{:atom, "user"}, :lparen, {:string, "alice"}, :comma,
-              {:atom, "admin"}, :rparen, :dot] = tokens
+      assert [
+               {:atom, "user"},
+               :lparen,
+               {:string, "alice"},
+               :comma,
+               {:atom, "admin"},
+               :rparen,
+               :dot
+             ] = tokens
     end
 
     test "tokenizes a rule" do
       input = ~s|ancestor(X, Y) :- parent(X, Y).|
       {:ok, tokens, "", _, _, _} = Lexer.tokenize(input)
 
-      assert [{:atom, "ancestor"}, :lparen, {:var, "X"}, :comma, {:var, "Y"},
-              :rparen, :implies, {:atom, "parent"}, :lparen, {:var, "X"},
-              :comma, {:var, "Y"}, :rparen, :dot] = tokens
+      assert [
+               {:atom, "ancestor"},
+               :lparen,
+               {:var, "X"},
+               :comma,
+               {:var, "Y"},
+               :rparen,
+               :implies,
+               {:atom, "parent"},
+               :lparen,
+               {:var, "X"},
+               :comma,
+               {:var, "Y"},
+               :rparen,
+               :dot
+             ] = tokens
     end
 
     test "tokenizes negation" do
@@ -33,6 +53,7 @@ defmodule Datalox.Parser.LexerTest do
       % This is a comment
       user("alice", admin).
       """
+
       {:ok, tokens, "", _, _, _} = Lexer.tokenize(input)
 
       # Comment should be skipped

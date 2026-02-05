@@ -7,7 +7,7 @@ defmodule Datalox.PropertyTest do
 
   # Generators
   defp atom_generator do
-    gen all name <- StreamData.string(:alphanumeric, min_length: 1, max_length: 10) do
+    gen all(name <- StreamData.string(:alphanumeric, min_length: 1, max_length: 10)) do
       String.to_atom(String.downcase(name))
     end
   end
@@ -25,16 +25,18 @@ defmodule Datalox.PropertyTest do
   end
 
   defp fact_generator(predicate, arity) do
-    gen all values <- StreamData.list_of(value_generator(), length: arity) do
+    gen all(values <- StreamData.list_of(value_generator(), length: arity)) do
       {predicate, values}
     end
   end
 
   describe "stratification properties" do
     property "stratification is deterministic" do
-      check all pred1 <- predicate_generator(),
-                pred2 <- predicate_generator(),
-                pred1 != pred2 do
+      check all(
+              pred1 <- predicate_generator(),
+              pred2 <- predicate_generator(),
+              pred1 != pred2
+            ) do
         # Create a simple set of rules
         rules = [
           Rule.new({pred1, [:X]}, [{pred2, [:X]}])
@@ -52,9 +54,11 @@ defmodule Datalox.PropertyTest do
     end
 
     property "rules without negation produce single stratum" do
-      check all pred1 <- predicate_generator(),
-                pred2 <- predicate_generator(),
-                pred1 != pred2 do
+      check all(
+              pred1 <- predicate_generator(),
+              pred2 <- predicate_generator(),
+              pred1 != pred2
+            ) do
         rules = [
           Rule.new({pred1, [:X]}, [{pred2, [:X]}])
         ]
@@ -69,7 +73,7 @@ defmodule Datalox.PropertyTest do
 
   describe "query result properties" do
     property "empty database returns empty results" do
-      check all pred <- predicate_generator() do
+      check all(pred <- predicate_generator()) do
         name = :"test_#{:erlang.unique_integer([:positive])}"
         {:ok, db} = Datalox.new(name: name)
 
@@ -82,8 +86,10 @@ defmodule Datalox.PropertyTest do
     end
 
     property "asserted fact can be queried back" do
-      check all pred <- predicate_generator(),
-                value <- value_generator() do
+      check all(
+              pred <- predicate_generator(),
+              value <- value_generator()
+            ) do
         name = :"test_#{:erlang.unique_integer([:positive])}"
         {:ok, db} = Datalox.new(name: name)
 
@@ -99,8 +105,10 @@ defmodule Datalox.PropertyTest do
     end
 
     property "retracted fact cannot be queried" do
-      check all pred <- predicate_generator(),
-                value <- value_generator() do
+      check all(
+              pred <- predicate_generator(),
+              value <- value_generator()
+            ) do
         name = :"test_#{:erlang.unique_integer([:positive])}"
         {:ok, db} = Datalox.new(name: name)
 
@@ -119,8 +127,10 @@ defmodule Datalox.PropertyTest do
 
   describe "incremental evaluation properties" do
     property "incremental delta matches full evaluation for simple rules" do
-      check all parent_value <- value_generator(),
-                child_value <- value_generator() do
+      check all(
+              parent_value <- value_generator(),
+              child_value <- value_generator()
+            ) do
         # Rule: ancestor(X, Y) :- parent(X, Y)
         rule = Rule.new({:ancestor, [:X, :Y]}, [{:parent, [:X, :Y]}])
 

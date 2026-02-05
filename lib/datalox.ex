@@ -174,10 +174,11 @@ defmodule Datalox do
 
     case Parser.parse_file(path) do
       {:ok, statements} ->
-        {facts, rules} = Enum.split_with(statements, fn
-          {:fact, _} -> true
-          {:rule, _} -> false
-        end)
+        {facts, rules} =
+          Enum.split_with(statements, fn
+            {:fact, _} -> true
+            {:rule, _} -> false
+          end)
 
         fact_tuples = Enum.map(facts, fn {:fact, f} -> f end)
         rule_structs = Enum.map(rules, fn {:rule, r} -> r end)
@@ -209,7 +210,9 @@ defmodule Datalox do
     if exists?(db, fact) do
       # Check if the predicate has rules (is derived)
       rules = Database.get_rules(db)
-      derived_predicates = rules
+
+      derived_predicates =
+        rules
         |> Enum.map(fn rule -> elem(rule.head, 0) end)
         |> MapSet.new()
 

@@ -16,6 +16,7 @@ defmodule Datalox.Parser.ParserTest do
       user("alice", admin).
       user("bob", viewer).
       """
+
       {:ok, result} = Parser.parse(input)
 
       assert length(result) == 2
@@ -53,6 +54,7 @@ defmodule Datalox.Parser.ParserTest do
       % Define permissions
       permission(admin, read).
       """
+
       {:ok, result} = Parser.parse(input)
 
       assert length(result) == 2
