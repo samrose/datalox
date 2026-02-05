@@ -1,0 +1,23 @@
+# Nix
+.nix-mix/
+.nix-hex/
+result
+
+# Elixir/Mix
+/_build/
+/deps/
+/*.ez
+/.elixir_ls/
+
+# Generated on crash
+erl_crash.dump
+
+# Test coverage
+/cover/
+
+# Documentation
+/doc/
+
+# Environment
+.env
+.env.local
