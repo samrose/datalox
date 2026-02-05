@@ -88,12 +88,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: priv/plts
-          key: plt-${{ runner.os }}-${{ hashFiles('mix.lock') }}
-          restore-keys: |
-            plt-${{ runner.os }}-
+          key: plt-${{ runner.os }}-${{ hashFiles('flake.lock', 'mix.lock') }}
 
       - name: Get dependencies
         run: nix develop -c mix deps.get
+
+      - name: Create PLT directory
+        run: mkdir -p priv/plts
 
       - name: Run Dialyzer
         run: nix develop -c mix dialyzer

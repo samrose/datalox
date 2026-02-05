@@ -8,6 +8,7 @@ result
 /deps/
 /*.ez
 /.elixir_ls/
+/priv/plts/
 
 # Generated on crash
 erl_crash.dump
