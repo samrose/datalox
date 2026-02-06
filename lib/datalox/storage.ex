@@ -42,9 +42,15 @@ defmodule Datalox.Storage do
   @callback count(state(), predicate()) :: {:ok, non_neg_integer()} | {:error, term()}
 
   @doc """
+  Create a secondary index on a column for faster lookups.
+  """
+  @callback create_index(state(), predicate(), non_neg_integer()) ::
+              {:ok, state()} | {:error, term()}
+
+  @doc """
   Clean up storage resources.
   """
   @callback terminate(state()) :: :ok
 
-  @optional_callbacks terminate: 1, count: 2
+  @optional_callbacks terminate: 1, count: 2, create_index: 3
 end

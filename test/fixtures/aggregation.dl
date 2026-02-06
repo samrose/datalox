@@ -1,0 +1,9 @@
+% Employee data
+employee("alice", "engineering").
+employee("bob", "engineering").
+employee("carol", "sales").
+employee("dave", "sales").
+employee("eve", "sales").
+
+% Department size rule with count
+dept_size(Dept, N) :- employee(_, Dept), N = count(Dept).

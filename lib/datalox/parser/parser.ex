@@ -54,10 +54,16 @@ defmodule Datalox.Parser.Parser do
       {:ok, head, [:implies | body_tokens]} ->
         # It's a rule
         case parse_body(body_tokens) do
-          {:ok, body, negations, [:dot | rest]} ->
+          {:ok, body, negations, aggregations, [:dot | rest]} ->
             {head_pred, head_terms} = head
             converted_head = {head_pred, Enum.map(head_terms, &term_to_rule_term/1)}
-            rule = Rule.new(converted_head, body, negations: negations)
+
+            rule =
+              Rule.new(converted_head, body,
+                negations: negations,
+                aggregations: aggregations
+              )
+
             {:ok, {:rule, rule}, rest}
 
           {:error, _} = error ->
@@ -135,41 +141,86 @@ defmodule Datalox.Parser.Parser do
 
   # Parse rule body
   defp parse_body(tokens) do
-    parse_body_goals(tokens, [], [])
+    parse_body_goals(tokens, [], [], [])
   end
 
-  defp parse_body_goals([:not, {:atom, pred} | rest], goals, negations) do
-    case parse_goal({:atom, pred}, rest) do
-      {:ok, goal, [:comma | rest]} ->
-        {neg_pred, neg_terms} = goal
-        neg_goal = {neg_pred, Enum.map(neg_terms, &term_to_rule_term/1)}
-        parse_body_goals(rest, goals, [neg_goal | negations])
+  # Aggregation: Var = agg_fn(args)
+  defp parse_body_goals(
+         [{:var, var_name}, :equals, {:atom, agg_name} | rest],
+         goals,
+         negations,
+         aggs
+       )
+       when agg_name in ~w(count sum min max avg collect) do
+    case parse_goal({:atom, agg_name}, rest) do
+      {:ok, {_pred, agg_args}, [:comma | rest]} ->
+        agg = build_aggregation(agg_name, var_name, agg_args)
+        parse_body_goals(rest, goals, negations, [agg | aggs])
 
-      {:ok, goal, rest} ->
-        {neg_pred, neg_terms} = goal
-        neg_goal = {neg_pred, Enum.map(neg_terms, &term_to_rule_term/1)}
-        {:ok, Enum.reverse(goals), Enum.reverse([neg_goal | negations]), rest}
+      {:ok, {_pred, agg_args}, rest} ->
+        agg = build_aggregation(agg_name, var_name, agg_args)
+
+        {:ok, Enum.reverse(goals), Enum.reverse(negations),
+         Enum.reverse([agg | aggs]), rest}
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp parse_body_goals([{:atom, pred} | rest], goals, negations) do
+  defp parse_body_goals([:not, {:atom, pred} | rest], goals, negations, aggs) do
     case parse_goal({:atom, pred}, rest) do
       {:ok, goal, [:comma | rest]} ->
-        {pred, terms} = goal
-        converted_goal = {pred, Enum.map(terms, &term_to_rule_term/1)}
-        parse_body_goals(rest, [converted_goal | goals], negations)
+        {neg_pred, neg_terms} = goal
+        neg_goal = {neg_pred, Enum.map(neg_terms, &term_to_rule_term/1)}
+        parse_body_goals(rest, goals, [neg_goal | negations], aggs)
 
       {:ok, goal, rest} ->
-        {pred, terms} = goal
-        converted_goal = {pred, Enum.map(terms, &term_to_rule_term/1)}
-        {:ok, Enum.reverse([converted_goal | goals]), Enum.reverse(negations), rest}
+        {neg_pred, neg_terms} = goal
+        neg_goal = {neg_pred, Enum.map(neg_terms, &term_to_rule_term/1)}
+
+        {:ok, Enum.reverse(goals), Enum.reverse([neg_goal | negations]),
+         Enum.reverse(aggs), rest}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp parse_body_goals([{:atom, pred} | rest], goals, negations, aggs) do
+    case parse_goal({:atom, pred}, rest) do
+      {:ok, goal, [:comma | rest]} ->
+        {pred, terms} = goal
+        converted_goal = {pred, Enum.map(terms, &term_to_rule_term/1)}
+        parse_body_goals(rest, [converted_goal | goals], negations, aggs)
+
+      {:ok, goal, rest} ->
+        {pred, terms} = goal
+        converted_goal = {pred, Enum.map(terms, &term_to_rule_term/1)}
+
+        {:ok, Enum.reverse([converted_goal | goals]), Enum.reverse(negations),
+         Enum.reverse(aggs), rest}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp build_aggregation(agg_name, var_name, agg_args) do
+    agg_fn = String.to_atom(agg_name)
+    target_var = String.to_atom(var_name)
+    rule_args = Enum.map(agg_args, &term_to_rule_term/1)
+
+    source_var =
+      case {agg_fn, rule_args} do
+        {:count, _} -> :_
+        {_, [src | _]} -> src
+        _ -> :_
+      end
+
+    group_vars = rule_args
+
+    {agg_fn, target_var, source_var, group_vars}
   end
 
   # Convert parsed term to rule term (variable atom)

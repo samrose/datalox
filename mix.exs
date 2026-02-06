@@ -34,6 +34,7 @@ defmodule Datalox.MixProject do
     [
       {:nimble_parsec, "~> 1.4"},
       {:telemetry, "~> 1.2"},
+      {:cubdb, "~> 2.0"},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

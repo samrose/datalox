@@ -73,4 +73,24 @@ defmodule Datalox.Parser.ParserTest do
       File.rm!(path)
     end
   end
+
+  describe "parse/1 with aggregation" do
+    test "parses rule with count aggregation" do
+      input = "dept_count(Dept, N) :- employee(_, Dept), N = count(Dept)."
+      {:ok, [result]} = Parser.parse(input)
+
+      assert {:rule, rule} = result
+      assert rule.head == {:dept_count, [:Dept, :N]}
+      assert rule.body == [{:employee, [:_, :Dept]}]
+      assert [{:count, :N, :_, [:Dept]}] = rule.aggregations
+    end
+
+    test "parses rule with sum aggregation" do
+      input = "total(Person, T) :- sale(Person, Amount), T = sum(Amount)."
+      {:ok, [result]} = Parser.parse(input)
+
+      assert {:rule, rule} = result
+      assert [{:sum, :T, :Amount, _group_vars}] = rule.aggregations
+    end
+  end
 end

@@ -67,6 +67,7 @@ defmodule Datalox.Parser.Lexer do
   comma = string(",") |> replace(:comma)
   dot = string(".") |> replace(:dot)
   implies = string(":-") |> replace(:implies)
+  equals = string("=") |> replace(:equals)
 
   # Token - order matters! Keywords before atoms, longer punctuation before shorter
   token =
@@ -75,6 +76,7 @@ defmodule Datalox.Parser.Lexer do
       comment,
       not_keyword,
       implies,
+      equals,
       lparen,
       rparen,
       comma,

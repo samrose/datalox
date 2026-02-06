@@ -67,4 +67,16 @@ defmodule Datalox.Parser.LexerTest do
       assert {:integer, 30} in tokens
     end
   end
+
+  describe "aggregation tokens" do
+    test "tokenizes = sign" do
+      {:ok, tokens, _, _, _, _} = Lexer.tokenize("N = count")
+      assert tokens == [{:var, "N"}, :equals, {:atom, "count"}]
+    end
+
+    test "tokenizes full aggregation expression" do
+      {:ok, tokens, _, _, _, _} = Lexer.tokenize("N = sum(Amount)")
+      assert tokens == [{:var, "N"}, :equals, {:atom, "sum"}, :lparen, {:var, "Amount"}, :rparen]
+    end
+  end
 end
