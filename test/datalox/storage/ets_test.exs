@@ -78,6 +78,37 @@ defmodule Datalox.Storage.ETSTest do
     end
   end
 
+  describe "indexed lookup" do
+    test "lookup with bound first column uses index", %{state: state} do
+      # Insert many facts
+      state =
+        Enum.reduce(1..100, state, fn i, st ->
+          {:ok, st} = ETS.insert(st, :node, [i, "label_#{i}"])
+          st
+        end)
+
+      # Lookup by first column should return exactly one result
+      {:ok, results} = ETS.lookup(state, :node, [42, :_])
+      assert results == [[42, "label_42"]]
+    end
+
+    test "lookup with all wildcards returns all facts", %{state: state} do
+      {:ok, state} = ETS.insert(state, :edge, [1, 2])
+      {:ok, state} = ETS.insert(state, :edge, [2, 3])
+      {:ok, state} = ETS.insert(state, :edge, [1, 3])
+      {:ok, results} = ETS.lookup(state, :edge, [:_, :_])
+      assert length(results) == 3
+    end
+
+    test "lookup with bound non-first column still works", %{state: state} do
+      {:ok, state} = ETS.insert(state, :user, ["alice", :admin])
+      {:ok, state} = ETS.insert(state, :user, ["bob", :viewer])
+      {:ok, state} = ETS.insert(state, :user, ["carol", :admin])
+      {:ok, results} = ETS.lookup(state, :user, [:_, :admin])
+      assert length(results) == 2
+    end
+  end
+
   describe "count/2" do
     test "returns 0 for unknown predicate", %{state: state} do
       assert {:ok, 0} == ETS.count(state, :unknown)

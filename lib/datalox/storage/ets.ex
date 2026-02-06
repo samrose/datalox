@@ -2,8 +2,8 @@ defmodule Datalox.Storage.ETS do
   @moduledoc """
   ETS-based storage backend for Datalox.
 
-  Uses one ETS table per predicate for efficient lookups.
-  Tables are created as bags to allow duplicate-free storage of facts.
+  Uses one ETS `:duplicate_bag` table per predicate, keyed by the first
+  element of each tuple for O(1) first-column lookups.
   """
 
   @behaviour Datalox.Storage
@@ -23,7 +23,8 @@ defmodule Datalox.Storage.ETS do
   def insert(state, predicate, tuple) do
     state = ensure_table(state, predicate)
     table = state.tables[predicate]
-    :ets.insert(table, {tuple})
+    key = first_key(tuple)
+    :ets.insert(table, {key, tuple})
     {:ok, state}
   end
 
@@ -34,7 +35,8 @@ defmodule Datalox.Storage.ETS do
         {:ok, state}
 
       table ->
-        :ets.delete_object(table, {tuple})
+        key = first_key(tuple)
+        :ets.delete_object(table, {key, tuple})
         {:ok, state}
     end
   end
@@ -46,12 +48,7 @@ defmodule Datalox.Storage.ETS do
         {:ok, []}
 
       table ->
-        results =
-          table
-          |> :ets.tab2list()
-          |> Enum.filter(fn {tuple} -> matches_pattern?(tuple, pattern) end)
-          |> Enum.map(fn {tuple} -> tuple end)
-
+        results = indexed_lookup(table, pattern)
         {:ok, results}
     end
   end
@@ -63,7 +60,7 @@ defmodule Datalox.Storage.ETS do
         {:ok, []}
 
       table ->
-        results = :ets.tab2list(table) |> Enum.map(fn {tuple} -> tuple end)
+        results = :ets.tab2list(table) |> Enum.map(fn {_key, tuple} -> tuple end)
         {:ok, results}
     end
   end
@@ -85,18 +82,32 @@ defmodule Datalox.Storage.ETS do
     :ok
   end
 
-  # Ensure a table exists for the given predicate
+  # --- Private ---
+
   defp ensure_table(state, predicate) do
     if Map.has_key?(state.tables, predicate) do
       state
     else
       table_name = :"#{state.name}_#{predicate}"
-      table = :ets.new(table_name, [:set, :protected])
+      table = :ets.new(table_name, [:duplicate_bag, :protected])
       put_in(state.tables[predicate], table)
     end
   end
 
-  # Check if a tuple matches a pattern (with :_ wildcards)
+  # When the first element of the pattern is bound, use ETS key lookup
+  defp indexed_lookup(table, [first | rest_pattern]) when first != :_ do
+    :ets.lookup(table, first)
+    |> Enum.filter(fn {_key, tuple} -> matches_pattern?(tuple, [first | rest_pattern]) end)
+    |> Enum.map(fn {_key, tuple} -> tuple end)
+  end
+
+  # When the first element is a wildcard, fall back to full scan
+  defp indexed_lookup(table, pattern) do
+    :ets.tab2list(table)
+    |> Enum.filter(fn {_key, tuple} -> matches_pattern?(tuple, pattern) end)
+    |> Enum.map(fn {_key, tuple} -> tuple end)
+  end
+
   defp matches_pattern?(tuple, pattern) when length(tuple) == length(pattern) do
     Enum.zip(tuple, pattern)
     |> Enum.all?(fn
@@ -107,4 +118,7 @@ defmodule Datalox.Storage.ETS do
   end
 
   defp matches_pattern?(_, _), do: false
+
+  defp first_key([first | _]), do: first
+  defp first_key([]), do: :__empty__
 end
