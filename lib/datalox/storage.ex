@@ -37,9 +37,14 @@ defmodule Datalox.Storage do
   @callback all(state(), predicate()) :: {:ok, [fact_tuple()]} | {:error, term()}
 
   @doc """
+  Return the number of facts stored for a predicate.
+  """
+  @callback count(state(), predicate()) :: {:ok, non_neg_integer()} | {:error, term()}
+
+  @doc """
   Clean up storage resources.
   """
   @callback terminate(state()) :: :ok
 
-  @optional_callbacks terminate: 1
+  @optional_callbacks terminate: 1, count: 2
 end

@@ -69,6 +69,14 @@ defmodule Datalox.Storage.ETS do
   end
 
   @impl true
+  def count(state, predicate) do
+    case Map.get(state.tables, predicate) do
+      nil -> {:ok, 0}
+      table -> {:ok, :ets.info(table, :size)}
+    end
+  end
+
+  @impl true
   def terminate(state) do
     Enum.each(state.tables, fn {_pred, table} ->
       :ets.delete(table)

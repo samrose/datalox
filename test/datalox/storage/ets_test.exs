@@ -77,4 +77,18 @@ defmodule Datalox.Storage.ETSTest do
       assert results == []
     end
   end
+
+  describe "count/2" do
+    test "returns 0 for unknown predicate", %{state: state} do
+      assert {:ok, 0} == ETS.count(state, :unknown)
+    end
+
+    test "returns number of facts for predicate", %{state: state} do
+      {:ok, state} = ETS.insert(state, :user, ["alice", :admin])
+      {:ok, state} = ETS.insert(state, :user, ["bob", :viewer])
+      {:ok, state} = ETS.insert(state, :role, [:admin, :write])
+      assert {:ok, 2} == ETS.count(state, :user)
+      assert {:ok, 1} == ETS.count(state, :role)
+    end
+  end
 end
