@@ -47,6 +47,16 @@ defmodule Datalox.Parser.Lexer do
     |> ignore(string("\""))
     |> unwrap_and_tag(:string)
 
+  # Floats (must come before integer in choice, e.g. 1.5 vs 1 then .)
+  float_token =
+    optional(string("-"))
+    |> ascii_string([?0..?9], min: 1)
+    |> string(".")
+    |> ascii_string([?0..?9], min: 1)
+    |> reduce({Enum, :join, []})
+    |> map({String, :to_float, []})
+    |> unwrap_and_tag(:float)
+
   # Integers
   integer_token =
     optional(string("-"))
@@ -67,22 +77,49 @@ defmodule Datalox.Parser.Lexer do
   comma = string(",") |> replace(:comma)
   dot = string(".") |> replace(:dot)
   implies = string(":-") |> replace(:implies)
+
+  # Comparison operators (multi-char before single-char)
+  gte = string(">=") |> replace(:gte)
+  lte = string("<=") |> replace(:lte)
+  neq = string("!=") |> replace(:neq)
+  gt = string(">") |> replace(:gt)
+  lt = string("<") |> replace(:lt)
   equals = string("=") |> replace(:equals)
 
+  # Arithmetic operators
+  plus = string("+") |> replace(:plus)
+  star = string("*") |> replace(:star)
+  slash = string("/") |> replace(:slash)
+  minus = string("-") |> replace(:minus)
+
   # Token - order matters! Keywords before atoms, longer punctuation before shorter
+  # Multi-char operators before single-char; float before integer; minus after integer
   token =
     choice([
       whitespace,
       comment,
       not_keyword,
       implies,
+      # Comparison operators (multi-char before single-char, before equals)
+      gte,
+      lte,
+      neq,
+      gt,
+      lt,
       equals,
+      # Arithmetic operators (minus after numbers so -5 is integer, not minus + 5)
+      plus,
+      star,
+      slash,
       lparen,
       rparen,
       comma,
-      dot,
+      # Numbers: float before integer (1.5 vs 1 + dot); both before minus and dot
+      float_token,
       string_token,
       integer_token,
+      minus,
+      dot,
       wildcard_token,
       underscore_var_token,
       var_token,
