@@ -15,9 +15,7 @@ defmodule Datalox.GuardsTest do
     {:ok, storage} = ETS.insert(storage, :score, ["carol", 70])
 
     rules = [
-      Rule.new({:high_score, [:Name, :S]}, [{:score, [:Name, :S]}],
-        guards: [{:>, :S, 50}]
-      )
+      Rule.new({:high_score, [:Name, :S]}, [{:score, [:Name, :S]}], guards: [{:>, :S, 50}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)
@@ -44,9 +42,7 @@ defmodule Datalox.GuardsTest do
     {:ok, storage} = ETS.insert(storage, :pair, ["a", "a"])
 
     rules = [
-      Rule.new({:diff_pair, [:X, :Y]}, [{:pair, [:X, :Y]}],
-        guards: [{:!=, :X, :Y}]
-      )
+      Rule.new({:diff_pair, [:X, :Y]}, [{:pair, [:X, :Y]}], guards: [{:!=, :X, :Y}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)
@@ -60,9 +56,7 @@ defmodule Datalox.GuardsTest do
     {:ok, storage} = ETS.insert(storage, :value, [10])
 
     rules = [
-      Rule.new({:small, [:V]}, [{:value, [:V]}],
-        guards: [{:<, :V, 6}]
-      )
+      Rule.new({:small, [:V]}, [{:value, [:V]}], guards: [{:<, :V, 6}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)
@@ -77,9 +71,7 @@ defmodule Datalox.GuardsTest do
     {:ok, storage} = ETS.insert(storage, :value, [3])
 
     rules = [
-      Rule.new({:gte5, [:V]}, [{:value, [:V]}],
-        guards: [{:>=, :V, 5}]
-      )
+      Rule.new({:gte5, [:V]}, [{:value, [:V]}], guards: [{:>=, :V, 5}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)
@@ -94,9 +86,7 @@ defmodule Datalox.GuardsTest do
     {:ok, storage} = ETS.insert(storage, :value, [3])
 
     rules = [
-      Rule.new({:lte5, [:V]}, [{:value, [:V]}],
-        guards: [{:<=, :V, 5}]
-      )
+      Rule.new({:lte5, [:V]}, [{:value, [:V]}], guards: [{:<=, :V, 5}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)

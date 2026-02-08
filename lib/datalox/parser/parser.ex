@@ -160,8 +160,7 @@ defmodule Datalox.Parser.Parser do
       {:ok, {_pred, agg_args}, rest} ->
         agg = build_aggregation(agg_name, var_name, agg_args)
 
-        {:ok, Enum.reverse(goals), Enum.reverse(negations),
-         Enum.reverse([agg | aggs]), rest}
+        {:ok, Enum.reverse(goals), Enum.reverse(negations), Enum.reverse([agg | aggs]), rest}
 
       {:error, _} = error ->
         error
@@ -179,8 +178,7 @@ defmodule Datalox.Parser.Parser do
         {neg_pred, neg_terms} = goal
         neg_goal = {neg_pred, Enum.map(neg_terms, &term_to_rule_term/1)}
 
-        {:ok, Enum.reverse(goals), Enum.reverse([neg_goal | negations]),
-         Enum.reverse(aggs), rest}
+        {:ok, Enum.reverse(goals), Enum.reverse([neg_goal | negations]), Enum.reverse(aggs), rest}
 
       {:error, _} = error ->
         error
@@ -198,8 +196,8 @@ defmodule Datalox.Parser.Parser do
         {pred, terms} = goal
         converted_goal = {pred, Enum.map(terms, &term_to_rule_term/1)}
 
-        {:ok, Enum.reverse([converted_goal | goals]), Enum.reverse(negations),
-         Enum.reverse(aggs), rest}
+        {:ok, Enum.reverse([converted_goal | goals]), Enum.reverse(negations), Enum.reverse(aggs),
+         rest}
 
       {:error, _} = error ->
         error

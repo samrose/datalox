@@ -17,9 +17,7 @@ defmodule Datalox.FunctionsTest do
     {:ok, storage} = ETS.insert(storage, :value, ["a", 5])
 
     rules = [
-      Rule.new({:doubled, [:K, :D]}, [{:value, [:K, :V]}],
-        guards: [{:func, :D, :double, [:V]}]
-      )
+      Rule.new({:doubled, [:K, :D]}, [{:value, [:K, :V]}], guards: [{:func, :D, :double, [:V]}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)
@@ -30,9 +28,7 @@ defmodule Datalox.FunctionsTest do
     {:ok, storage} = ETS.insert(storage, :name, ["alice"])
 
     rules = [
-      Rule.new({:upper_name, [:U]}, [{:name, [:N]}],
-        guards: [{:func, :U, :upcase, [:N]}]
-      )
+      Rule.new({:upper_name, [:U]}, [{:name, [:N]}], guards: [{:func, :U, :upcase, [:N]}])
     ]
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS)

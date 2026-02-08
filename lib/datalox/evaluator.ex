@@ -103,7 +103,8 @@ defmodule Datalox.Evaluator do
     end
   end
 
-  defp process_new_facts(new_facts, all_derived, lattice_config) when map_size(lattice_config) == 0 do
+  defp process_new_facts(new_facts, all_derived, lattice_config)
+       when map_size(lattice_config) == 0 do
     # No lattices — standard duplicate filtering
     new_delta = Enum.reject(new_facts, fn fact -> Map.has_key?(all_derived, fact) end)
 

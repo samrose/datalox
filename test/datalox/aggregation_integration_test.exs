@@ -4,6 +4,7 @@ defmodule Datalox.AggregationIntegrationTest do
   setup do
     name = :"agg_integration_#{:erlang.unique_integer()}"
     {:ok, db} = Datalox.new(name: name)
+
     on_exit(fn ->
       try do
         Datalox.stop(db)
@@ -11,6 +12,7 @@ defmodule Datalox.AggregationIntegrationTest do
         :exit, _ -> :ok
       end
     end)
+
     {:ok, db: db}
   end
 

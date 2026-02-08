@@ -47,9 +47,7 @@ defmodule Datalox.SafetyTest do
 
   test "guard variable not in positive body fails" do
     rule =
-      Rule.new({:result, [:X]}, [{:value, [:X]}],
-        guards: [{:>, :Y, 5}]
-      )
+      Rule.new({:result, [:X]}, [{:value, [:X]}], guards: [{:>, :Y, 5}])
 
     assert {:error, errors} = Safety.check_all([rule])
     assert Enum.any?(errors, &String.contains?(&1, "Y"))
@@ -57,9 +55,7 @@ defmodule Datalox.SafetyTest do
 
   test "all variables bound passes with guards" do
     rule =
-      Rule.new({:high, [:X, :V]}, [{:score, [:X, :V]}],
-        guards: [{:>, :V, 50}]
-      )
+      Rule.new({:high, [:X, :V]}, [{:score, [:X, :V]}], guards: [{:>, :V, 50}])
 
     assert :ok = Safety.check_all([rule])
   end

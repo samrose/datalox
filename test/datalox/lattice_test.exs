@@ -32,7 +32,9 @@ defmodule Datalox.LatticeTest do
 
     {:ok, derived, _} = Evaluator.evaluate(rules, storage, ETS, lattice_config)
 
-    sp_ac = Enum.find(derived, fn {pred, [from, to, _]} -> pred == :sp and from == "a" and to == "c" end)
+    sp_ac =
+      Enum.find(derived, fn {pred, [from, to, _]} -> pred == :sp and from == "a" and to == "c" end)
+
     assert {:sp, ["a", "c", 3]} = sp_ac
   end
 
