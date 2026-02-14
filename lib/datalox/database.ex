@@ -11,7 +11,9 @@ defmodule Datalox.Database do
 
   use GenServer
 
-  alias Datalox.{Evaluator, Rule, Storage}
+  require Logger
+
+  alias Datalox.{Evaluator, Incremental, Rule, Storage}
   alias Datalox.Optimizer.MagicSets
 
   @type t :: pid()
@@ -123,7 +125,18 @@ defmodule Datalox.Database do
   def handle_call({:assert, predicate, tuple}, _from, state) do
     case state.storage_mod.insert(state.storage_state, predicate, tuple) do
       {:ok, new_storage_state} ->
-        {:reply, :ok, %{state | storage_state: new_storage_state}}
+        Datalox.Metrics.record_assert(state.name, predicate)
+        new_state = %{state | storage_state: new_storage_state}
+
+        # Incremental maintenance: derive new facts if rules are loaded
+        new_state =
+          if state.rules != [] do
+            incrementally_derive(new_state, predicate, tuple)
+          else
+            new_state
+          end
+
+        {:reply, :ok, new_state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -134,7 +147,18 @@ defmodule Datalox.Database do
   def handle_call({:retract, predicate, tuple}, _from, state) do
     case state.storage_mod.delete(state.storage_state, predicate, tuple) do
       {:ok, new_storage_state} ->
-        {:reply, :ok, %{state | storage_state: new_storage_state}}
+        Datalox.Metrics.record_retract(state.name, predicate)
+        new_state = %{state | storage_state: new_storage_state}
+
+        # Incremental maintenance: retract derived facts if rules are loaded
+        new_state =
+          if state.rules != [] do
+            incrementally_retract(new_state, predicate, tuple)
+          else
+            new_state
+          end
+
+        {:reply, :ok, new_state}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -174,6 +198,7 @@ defmodule Datalox.Database do
       :ok ->
         case Evaluator.evaluate(rules, state.storage_state, state.storage_mod) do
           {:ok, _derived, new_storage_state} ->
+            Datalox.Metrics.record_load_rules(state.name, length(rules))
             new_state = %{state | rules: rules, storage_state: new_storage_state}
             {:reply, :ok, new_state}
 
@@ -213,8 +238,12 @@ defmodule Datalox.Database do
 
   defp standard_lookup(state, predicate, pattern) do
     case state.storage_mod.lookup(state.storage_state, predicate, pattern) do
-      {:ok, results} -> Enum.map(results, fn tuple -> {predicate, tuple} end)
-      {:error, _reason} -> []
+      {:ok, results} ->
+        Enum.map(results, fn tuple -> {predicate, tuple} end)
+
+      {:error, reason} ->
+        Logger.warning("Datalox: lookup failed for #{predicate}: #{inspect(reason)}")
+        []
     end
   end
 
@@ -268,7 +297,9 @@ defmodule Datalox.Database do
 
         results
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning("Datalox: magic sets evaluation failed: #{inspect(reason)}")
+
         if function_exported?(state.storage_mod, :terminate, 1) do
           state.storage_mod.terminate(temp_storage)
         end
@@ -278,17 +309,92 @@ defmodule Datalox.Database do
   end
 
   defp copy_base_facts(state, temp_storage) do
-    # Copy all predicates (base facts are needed by rules)
     mod = state.storage_mod
-    tables = Map.get(state.storage_state, :tables, %{})
 
-    Enum.reduce(Map.keys(tables), temp_storage, fn pred, st ->
+    predicates =
+      if function_exported?(mod, :all_predicates, 1) do
+        {:ok, preds} = mod.all_predicates(state.storage_state)
+        preds
+      else
+        []
+      end
+
+    Enum.reduce(predicates, temp_storage, fn pred, st ->
       {:ok, facts} = mod.all(state.storage_state, pred)
 
       Enum.reduce(facts, st, fn tuple, st ->
         {:ok, st} = mod.insert(st, pred, tuple)
         st
       end)
+    end)
+  end
+
+  defp incrementally_derive(state, predicate, tuple) do
+    affected = Incremental.affected_rules(state.rules, predicate)
+
+    if affected == [] do
+      state
+    else
+      existing_facts = build_facts_map(state)
+
+      new_facts =
+        Enum.flat_map(affected, fn rule ->
+          Incremental.compute_delta(rule, {predicate, tuple}, existing_facts)
+        end)
+        |> Enum.uniq()
+
+      new_storage =
+        Enum.reduce(new_facts, state.storage_state, fn {pred, args}, st ->
+          {:ok, st} = state.storage_mod.insert(st, pred, args)
+          st
+        end)
+
+      %{state | storage_state: new_storage}
+    end
+  end
+
+  defp incrementally_retract(state, predicate, tuple) do
+    affected = Incremental.affected_rules(state.rules, predicate)
+
+    if affected == [] do
+      state
+    else
+      existing_facts = build_facts_map(state)
+
+      retractions =
+        Enum.flat_map(affected, fn rule ->
+          Incremental.compute_retractions(rule, {predicate, tuple}, existing_facts)
+        end)
+        |> Enum.uniq()
+
+      new_storage =
+        Enum.reduce(retractions, state.storage_state, fn {pred, args}, st ->
+          {:ok, st} = state.storage_mod.delete(st, pred, args)
+          st
+        end)
+
+      %{state | storage_state: new_storage}
+    end
+  end
+
+  defp build_facts_map(state) do
+    mod = state.storage_mod
+
+    predicates =
+      if function_exported?(mod, :all_predicates, 1) do
+        case mod.all_predicates(state.storage_state) do
+          {:ok, preds} -> preds
+          _ -> []
+        end
+      else
+        []
+      end
+
+    Enum.reduce(predicates, %{}, fn pred, acc ->
+      case mod.all(state.storage_state, pred) do
+        {:ok, facts} -> Map.put(acc, pred, facts)
+        _ -> acc
+      end
     end)
   end
 

@@ -26,6 +26,7 @@ defmodule Datalox do
 
   alias Datalox.Database
   alias Datalox.Explain
+  alias Datalox.Unification
 
   @doc """
   Creates a new Datalox database.
@@ -79,8 +80,12 @@ defmodule Datalox do
   """
   @spec assert_all(pid() | atom(), [{atom(), list()}]) :: :ok | {:error, term()}
   def assert_all(db, facts) when is_list(facts) do
-    Enum.each(facts, &assert(db, &1))
-    :ok
+    Enum.reduce_while(facts, :ok, fn fact, :ok ->
+      case assert(db, fact) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   @doc """
@@ -212,20 +217,62 @@ defmodule Datalox do
     end
   end
 
-  defp explain_fact(db, {predicate, _pattern} = fact) do
+  defp explain_fact(db, {predicate, args} = fact) do
     rules = Database.get_rules(db)
 
-    derived_predicates =
-      rules
-      |> Enum.map(fn rule -> elem(rule.head, 0) end)
-      |> MapSet.new()
+    matching_rules =
+      Enum.filter(rules, fn rule -> elem(rule.head, 0) == predicate end)
 
-    if MapSet.member?(derived_predicates, predicate) do
-      matching_rule = Enum.find(rules, fn rule -> elem(rule.head, 0) == predicate end)
-      rule_name = elem(matching_rule.head, 0)
-      Explain.derived(fact, rule_name, [])
-    else
+    if matching_rules == [] do
       Explain.base(fact)
+    else
+      Enum.find_value(matching_rules, &try_explain_rule(db, rules, &1, args, fact, predicate)) ||
+        Explain.base(fact)
+    end
+  end
+
+  defp try_explain_rule(db, rules, rule, args, fact, predicate) do
+    {_head_pred, head_vars} = rule.head
+
+    case Unification.unify(head_vars, args, %{}) do
+      {:ok, binding} ->
+        case explain_body_goals(db, rules, rule.body, binding) do
+          nil -> nil
+          body_explanations -> Explain.derived(fact, predicate, body_explanations)
+        end
+
+      :fail ->
+        nil
+    end
+  end
+
+  defp explain_body_goals(_db, _rules, [], _binding), do: []
+
+  defp explain_body_goals(db, rules, [goal | rest], binding) do
+    {pred, goal_terms} = goal
+    pattern = Enum.map(goal_terms, &Unification.substitute(&1, binding))
+
+    # Query matching facts from the database
+    matching = query(db, {pred, pattern})
+
+    case matching do
+      [] ->
+        nil
+
+      [{^pred, fact_args} | _] ->
+        # Extend binding with the matched fact
+        extended_binding =
+          case Unification.unify(goal_terms, fact_args, binding) do
+            {:ok, new_binding} -> new_binding
+            :fail -> binding
+          end
+
+        sub_explanation = explain_fact(db, {pred, fact_args})
+
+        case explain_body_goals(db, rules, rest, extended_binding) do
+          nil -> nil
+          rest_explanations -> [sub_explanation | rest_explanations]
+        end
     end
   end
 end

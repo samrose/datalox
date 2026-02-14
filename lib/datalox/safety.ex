@@ -2,6 +2,7 @@ defmodule Datalox.Safety do
   @moduledoc "Range-restriction safety checks for Datalog rules."
 
   alias Datalox.Rule
+  alias Datalox.Unification
 
   @spec check_all([Rule.t()]) :: :ok | {:error, [String.t()]}
   def check_all(rules) do
@@ -51,7 +52,7 @@ defmodule Datalox.Safety do
   defp collect_positive_vars(body) do
     body
     |> Enum.flat_map(fn {_pred, terms} -> terms end)
-    |> Enum.filter(&variable?/1)
+    |> Enum.filter(&Unification.variable?/1)
     |> Enum.reject(&(&1 == :_))
     |> MapSet.new()
   end
@@ -59,7 +60,7 @@ defmodule Datalox.Safety do
   defp check_head({pred, terms}, positive_vars) do
     var_errors =
       terms
-      |> Enum.filter(&variable?/1)
+      |> Enum.filter(&Unification.variable?/1)
       |> Enum.reject(&(&1 == :_))
       |> Enum.flat_map(fn var ->
         if MapSet.member?(positive_vars, var),
@@ -99,7 +100,7 @@ defmodule Datalox.Safety do
   end
 
   defp filter_real_vars(terms) do
-    terms |> Enum.filter(&variable?/1) |> Enum.reject(&(&1 == :_))
+    terms |> Enum.filter(&Unification.variable?/1) |> Enum.reject(&(&1 == :_))
   end
 
   defp check_vars_bound(vars, positive_vars, context) do
@@ -121,14 +122,7 @@ defmodule Datalox.Safety do
 
   defp extract_guard_vars(_), do: []
 
-  defp extract_expr_vars(v) when is_atom(v), do: if(variable?(v), do: [v], else: [])
+  defp extract_expr_vars(v) when is_atom(v), do: if(Unification.variable?(v), do: [v], else: [])
   defp extract_expr_vars({_op, a, b}), do: extract_expr_vars(a) ++ extract_expr_vars(b)
   defp extract_expr_vars(_), do: []
-
-  defp variable?(term) when is_atom(term) do
-    str = Atom.to_string(term)
-    String.match?(str, ~r/^[A-Z]/)
-  end
-
-  defp variable?(_), do: false
 end

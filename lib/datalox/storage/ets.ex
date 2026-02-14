@@ -26,12 +26,18 @@ defmodule Datalox.Storage.ETS do
     state = ensure_table(state, predicate)
     table = state.tables[predicate]
     key = first_key(tuple)
-    :ets.insert(table, {key, tuple})
 
-    # Update secondary indexes
-    state = update_indexes_on_insert(state, predicate, tuple)
+    # Deduplicate: check if this exact fact already exists
+    existing = :ets.lookup(table, key)
+    already_exists = Enum.any?(existing, fn {_k, t} -> t == tuple end)
 
-    {:ok, state}
+    if already_exists do
+      {:ok, state}
+    else
+      :ets.insert(table, {key, tuple})
+      update_indexes_on_insert(state, predicate, tuple)
+      {:ok, state}
+    end
   end
 
   @impl true
@@ -81,6 +87,11 @@ defmodule Datalox.Storage.ETS do
       nil -> {:ok, 0}
       table -> {:ok, :ets.info(table, :size)}
     end
+  end
+
+  @impl true
+  def all_predicates(state) do
+    {:ok, Map.keys(state.tables)}
   end
 
   @doc """

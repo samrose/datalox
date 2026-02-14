@@ -66,6 +66,16 @@ defmodule Datalox.Storage.CubDB do
   end
 
   @impl true
+  def all_predicates(state) do
+    predicates =
+      CubDB.select(state.db)
+      |> Enum.map(fn {{pred, _}, _} -> pred end)
+      |> Enum.uniq()
+
+    {:ok, predicates}
+  end
+
+  @impl true
   def terminate(state) do
     GenServer.stop(state.db)
     :ok

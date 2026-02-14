@@ -24,6 +24,8 @@ defmodule Datalox.Rule do
           guards: [any()]
         }
 
+  alias Datalox.Unification
+
   @enforce_keys [:head, :body]
   defstruct head: nil,
             body: [],
@@ -95,17 +97,7 @@ defmodule Datalox.Rule do
   # Extract variables from a goal, filtering out wildcards (:_)
   defp extract_variables({_predicate, terms}) do
     terms
-    |> Enum.filter(&variable?/1)
+    |> Enum.filter(&Unification.variable?/1)
     |> Enum.reject(&(&1 == :_))
   end
-
-  # A term is a variable if it's an uppercase atom
-  defp variable?(term) when is_atom(term) do
-    term
-    |> Atom.to_string()
-    |> String.first()
-    |> String.match?(~r/^[A-Z_]$/)
-  end
-
-  defp variable?(_), do: false
 end

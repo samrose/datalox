@@ -7,6 +7,7 @@ defmodule Datalox.Incremental do
   """
 
   alias Datalox.Rule
+  alias Datalox.Unification
 
   @doc """
   Finds rules that are affected by a change to the given predicate.
@@ -75,9 +76,10 @@ defmodule Datalox.Incremental do
 
   # Create variable binding from goal pattern and actual values
   defp create_binding(vars, values) do
-    Enum.zip(vars, values)
-    |> Enum.filter(fn {var, _} -> is_atom(var) and var != :_ end)
-    |> Map.new()
+    case Unification.unify(vars, values, %{}) do
+      {:ok, binding} -> binding
+      :fail -> %{}
+    end
   end
 
   # Evaluate body goals against existing facts
@@ -89,30 +91,12 @@ defmodule Datalox.Incremental do
     new_bindings =
       for binding <- bindings,
           tuple <- fact_tuples,
-          new_binding = unify(goal_vars, tuple, binding),
-          new_binding != nil do
+          {:ok, new_binding} <- [Unification.unify(goal_vars, tuple, binding)] do
         new_binding
       end
 
     evaluate_goals(rest, new_bindings, facts)
   end
-
-  # Unify goal pattern with fact tuple under current binding
-  defp unify(vars, values, binding) when length(vars) == length(values) do
-    Enum.zip(vars, values)
-    |> Enum.reduce_while(binding, fn {var, val}, acc ->
-      cond do
-        var == :_ -> {:cont, acc}
-        is_atom(var) and not Map.has_key?(acc, var) -> {:cont, Map.put(acc, var, val)}
-        is_atom(var) and Map.get(acc, var) == val -> {:cont, acc}
-        is_atom(var) -> {:halt, nil}
-        var == val -> {:cont, acc}
-        true -> {:halt, nil}
-      end
-    end)
-  end
-
-  defp unify(_, _, _), do: nil
 
   defp remove_fact(facts, {pred, args}) do
     Map.update(facts, pred, [], fn tuples ->

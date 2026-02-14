@@ -6,6 +6,8 @@ defmodule Datalox.Join.Leapfrog do
   of multiple sorted relations sharing a common variable.
   """
 
+  alias Datalox.Unification
+
   @doc """
   Check if a body is eligible for WCOJ: 3+ goals with at least one
   variable appearing in all of them.
@@ -19,7 +21,7 @@ defmodule Datalox.Join.Leapfrog do
       body
       |> Enum.flat_map(fn {_pred, terms} ->
         terms
-        |> Enum.filter(&variable?/1)
+        |> Enum.filter(&Unification.variable?/1)
         |> Enum.reject(&(&1 == :_))
         |> Enum.uniq()
       end)
@@ -112,48 +114,15 @@ defmodule Datalox.Join.Leapfrog do
   end
 
   defp extend_binding(binding, pred, terms, storage, storage_mod) do
-    pattern = Enum.map(terms, fn term -> substitute(term, binding) end)
+    pattern = Enum.map(terms, fn term -> Unification.substitute(term, binding) end)
     {:ok, results} = storage_mod.lookup(storage, pred, pattern)
 
     Enum.flat_map(results, fn tuple ->
-      case unify(terms, tuple, binding) do
+      case Unification.unify(terms, tuple, binding) do
         {:ok, new_binding} -> [new_binding]
         :fail -> []
       end
     end)
-  end
-
-  defp substitute(term, binding) when is_atom(term) do
-    if variable?(term), do: Map.get(binding, term, :_), else: term
-  end
-
-  defp substitute(term, _binding), do: term
-
-  defp unify([], [], binding), do: {:ok, binding}
-
-  defp unify([term | terms], [value | values], binding) do
-    case unify_one(term, value, binding) do
-      {:ok, new_binding} -> unify(terms, values, new_binding)
-      :fail -> :fail
-    end
-  end
-
-  defp unify_one(:_, _value, binding), do: {:ok, binding}
-
-  defp unify_one(term, value, binding) when is_atom(term) do
-    if variable?(term) do
-      case Map.fetch(binding, term) do
-        {:ok, ^value} -> {:ok, binding}
-        {:ok, _other} -> :fail
-        :error -> {:ok, Map.put(binding, term, value)}
-      end
-    else
-      if term == value, do: {:ok, binding}, else: :fail
-    end
-  end
-
-  defp unify_one(term, value, binding) do
-    if term == value, do: {:ok, binding}, else: :fail
   end
 
   # Leapfrog core: advance iterators seeking matches
@@ -207,7 +176,7 @@ defmodule Datalox.Join.Leapfrog do
     var_counts =
       body
       |> Enum.flat_map(fn {_pred, terms} ->
-        terms |> Enum.filter(&variable?/1) |> Enum.reject(&(&1 == :_))
+        terms |> Enum.filter(&Unification.variable?/1) |> Enum.reject(&(&1 == :_))
       end)
       |> Enum.frequencies()
 
@@ -215,11 +184,4 @@ defmodule Datalox.Join.Leapfrog do
     {var, _count} = Enum.max_by(var_counts, fn {_var, count} -> count end)
     var
   end
-
-  defp variable?(term) when is_atom(term) do
-    str = Atom.to_string(term)
-    String.match?(str, ~r/^[A-Z]/)
-  end
-
-  defp variable?(_), do: false
 end

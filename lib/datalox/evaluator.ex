@@ -11,6 +11,7 @@ defmodule Datalox.Evaluator do
   alias Datalox.Join.Leapfrog
   alias Datalox.Optimizer.{JoinOrder, Stratifier}
   alias Datalox.Rule
+  alias Datalox.Unification
 
   @type fact :: {atom(), list()}
   @type storage :: any()
@@ -43,40 +44,31 @@ defmodule Datalox.Evaluator do
 
   # Evaluate each stratum in order
   defp evaluate_strata([], storage, _storage_mod, _lattice_config, acc) do
-    {:ok, acc, storage}
+    {:ok, acc |> Enum.reverse() |> List.flatten(), storage}
   end
 
   defp evaluate_strata([stratum | rest], storage, storage_mod, lattice_config, acc) do
     {derived, storage} = evaluate_stratum(stratum, storage, storage_mod, lattice_config)
-    evaluate_strata(rest, storage, storage_mod, lattice_config, acc ++ derived)
+    evaluate_strata(rest, storage, storage_mod, lattice_config, [derived | acc])
   end
 
   # Evaluate a single stratum using semi-naive iteration
   defp evaluate_stratum(rules, storage, storage_mod, lattice_config) do
     # Initial pass - derive all facts we can
-    {initial_delta, storage} = derive_all(rules, storage, storage_mod)
+    {initial_facts, storage} = derive_all(rules, storage, storage_mod)
 
-    # Iterate until fixpoint
-    iterate_seminaive(rules, storage, storage_mod, lattice_config, initial_delta, initial_delta)
+    # Process initial facts through lattice merging (if applicable) and dedup
+    {initial_delta_list, initial_derived} =
+      process_new_facts(initial_facts, %{}, lattice_config)
+
+    initial_delta = Enum.group_by(initial_delta_list, fn {pred, _} -> pred end)
+
+    iterate_seminaive(rules, storage, storage_mod, lattice_config, initial_delta, initial_derived)
   end
 
-  defp iterate_seminaive(_rules, storage, _storage_mod, _lattice_config, _delta, all_derived)
-       when map_size(all_derived) == 0 or all_derived == [] do
-    {Map.values(all_derived) |> List.flatten(), storage}
-  end
-
-  defp iterate_seminaive(rules, storage, storage_mod, lattice_config, delta, _all_derived)
-       when is_list(delta) do
-    delta_map = Enum.group_by(delta, fn {pred, _} -> pred end)
-
-    iterate_seminaive(
-      rules,
-      storage,
-      storage_mod,
-      lattice_config,
-      delta_map,
-      list_to_derived_map(delta)
-    )
+  defp iterate_seminaive(_rules, storage, _storage_mod, _lattice_config, delta, all_derived)
+       when map_size(delta) == 0 do
+    {Map.keys(all_derived), storage}
   end
 
   defp iterate_seminaive(rules, storage, storage_mod, lattice_config, delta, all_derived) do
@@ -170,35 +162,40 @@ defmodule Datalox.Evaluator do
     end)
   end
 
-  defp list_to_derived_map(facts) do
-    Enum.reduce(facts, %{}, fn fact, acc -> Map.put(acc, fact, true) end)
-  end
-
   # Initial derivation pass — evaluate independent rules in parallel
   defp derive_all(rules, storage, storage_mod) do
-    rules
-    |> group_independent_rules()
-    |> Enum.reduce({[], storage}, fn group, acc ->
-      evaluate_group(group, acc, storage_mod, %{})
-    end)
+    {facts_nested, storage} =
+      rules
+      |> group_independent_rules()
+      |> Enum.reduce({[], storage}, fn group, {acc, st} ->
+        {new_facts, st} = evaluate_group(group, st, storage_mod, %{})
+        {[new_facts | acc], st}
+      end)
+
+    {List.flatten(facts_nested), storage}
   end
 
   # Derive using delta facts — parallel for independent rules
   defp derive_with_delta(rules, storage, storage_mod, delta) do
-    rules
-    |> group_independent_rules()
-    |> Enum.reduce({[], storage}, fn group, acc ->
-      evaluate_group(group, acc, storage_mod, delta)
-    end)
+    {facts_nested, storage} =
+      rules
+      |> group_independent_rules()
+      |> Enum.reduce({[], storage}, fn group, {acc, st} ->
+        {new_facts, st} = evaluate_group(group, st, storage_mod, delta)
+        {[new_facts | acc], st}
+      end)
+
+    {List.flatten(facts_nested), storage}
   end
 
   # Evaluate a group of rules — parallel if multiple, sequential if single
-  defp evaluate_group([rule], {facts, st}, storage_mod, delta) do
-    {new_facts, st} = evaluate_rule(rule, st, storage_mod, delta)
-    {facts ++ new_facts, st}
+  defp evaluate_group([rule], st, storage_mod, delta) do
+    {new_facts, _} = evaluate_rule(rule, st, storage_mod, delta)
+    st = store_facts(new_facts, st, storage_mod)
+    {new_facts, st}
   end
 
-  defp evaluate_group(group, {facts, st}, storage_mod, delta) do
+  defp evaluate_group(group, st, storage_mod, delta) do
     results =
       group
       |> Task.async_stream(
@@ -208,10 +205,9 @@ defmodule Datalox.Evaluator do
       )
       |> Enum.map(fn {:ok, result} -> result end)
 
-    Enum.reduce(results, {facts, st}, fn {new_facts, _}, {acc_facts, acc_st} ->
-      acc_st = store_facts(new_facts, acc_st, storage_mod)
-      {acc_facts ++ new_facts, acc_st}
-    end)
+    all_new_facts = Enum.flat_map(results, fn {new_facts, _} -> new_facts end)
+    st = store_facts(all_new_facts, st, storage_mod)
+    {all_new_facts, st}
   end
 
   defp store_facts(facts, storage, storage_mod) do
@@ -221,12 +217,48 @@ defmodule Datalox.Evaluator do
     end)
   end
 
-  # Evaluate a single rule
-  defp evaluate_rule(rule, storage, storage_mod, _delta) do
-    # Reorder body goals by estimated cost
+  # Evaluate a single rule — dispatches to full or delta-aware evaluation
+  defp evaluate_rule(rule, storage, storage_mod, delta) when map_size(delta) == 0 do
+    evaluate_rule_full(rule, storage, storage_mod)
+  end
+
+  defp evaluate_rule(rule, storage, storage_mod, delta) do
+    ordered_body = JoinOrder.reorder(rule.body, %{}, storage, storage_mod)
+    delta_predicates = Map.keys(delta)
+
+    # Find body goal indices whose predicate appears in the delta
+    delta_indices =
+      ordered_body
+      |> Enum.with_index()
+      |> Enum.filter(fn {{pred, _}, _idx} -> pred in delta_predicates end)
+      |> Enum.map(fn {_, idx} -> idx end)
+
+    if delta_indices == [] do
+      # No body goals reference delta predicates — skip
+      {[], storage}
+    else
+      # Semi-naive: for each delta index, evaluate a variant using delta for that goal
+      indexed_body = Enum.with_index(ordered_body)
+
+      all_facts =
+        Enum.flat_map(delta_indices, fn delta_idx ->
+          bindings =
+            evaluate_body_with_delta(indexed_body, delta_idx, delta, storage, storage_mod, [%{}])
+
+          bindings = filter_negations(bindings, rule.negations, storage, storage_mod)
+          bindings = apply_guards(bindings, rule.guards)
+          project_bindings(rule, bindings)
+        end)
+        |> Enum.uniq()
+
+      {all_facts, storage}
+    end
+  end
+
+  # Full evaluation (initial pass, no delta)
+  defp evaluate_rule_full(rule, storage, storage_mod) do
     ordered_body = JoinOrder.reorder(rule.body, %{}, storage, storage_mod)
 
-    # Use leapfrog join for eligible multi-way joins, else standard nested loop
     bindings =
       if Leapfrog.eligible?(ordered_body) do
         Leapfrog.evaluate_join(ordered_body, storage, storage_mod)
@@ -234,30 +266,22 @@ defmodule Datalox.Evaluator do
         evaluate_body(ordered_body, storage, storage_mod, [%{}])
       end
 
-    # Filter by negations
     bindings = filter_negations(bindings, rule.negations, storage, storage_mod)
-
-    # Apply guards (assignments first, then filters)
     bindings = apply_guards(bindings, rule.guards)
-
-    # Apply aggregation or project directly
-    facts =
-      if rule.aggregations != [] do
-        apply_aggregations(rule, bindings)
-      else
-        bindings
-        |> Enum.map(fn binding -> instantiate_head(rule.head, binding) end)
-        |> Enum.uniq()
-      end
-
-    # Store derived facts
-    storage =
-      Enum.reduce(facts, storage, fn {pred, tuple}, st ->
-        {:ok, st} = storage_mod.insert(st, pred, tuple)
-        st
-      end)
+    facts = project_bindings(rule, bindings)
 
     {facts, storage}
+  end
+
+  # Project bindings to facts via head instantiation or aggregation
+  defp project_bindings(rule, bindings) do
+    if rule.aggregations != [] do
+      apply_aggregations(rule, bindings)
+    else
+      bindings
+      |> Enum.map(fn binding -> instantiate_head(rule.head, binding) end)
+      |> Enum.uniq()
+    end
   end
 
   # Apply aggregation: group bindings, compute aggregate per group, produce facts
@@ -292,6 +316,64 @@ defmodule Datalox.Evaluator do
     Enum.map(group_bindings, &Map.get(&1, source_var))
   end
 
+  # Evaluate body goals with one goal using delta facts (semi-naive)
+  defp evaluate_body_with_delta([], _delta_idx, _delta, _storage, _storage_mod, bindings) do
+    bindings
+  end
+
+  defp evaluate_body_with_delta(
+         [{{predicate, terms}, idx} | rest],
+         delta_idx,
+         delta,
+         storage,
+         storage_mod,
+         bindings
+       ) do
+    new_bindings =
+      if idx == delta_idx do
+        # Use delta facts for this goal instead of full storage
+        delta_facts = Map.get(delta, predicate, [])
+        evaluate_goal_against_facts({predicate, terms}, delta_facts, bindings)
+      else
+        # Use full storage for all other goals
+        Enum.flat_map(bindings, fn binding ->
+          evaluate_goal({predicate, terms}, storage, storage_mod, binding)
+        end)
+      end
+
+    evaluate_body_with_delta(rest, delta_idx, delta, storage, storage_mod, new_bindings)
+  end
+
+  # Evaluate a goal against a list of in-memory facts (the delta)
+  defp evaluate_goal_against_facts({_predicate, terms}, delta_facts, bindings) do
+    Enum.flat_map(bindings, fn binding ->
+      pattern = Enum.map(terms, fn term -> Unification.substitute(term, binding) end)
+      unify_matching_facts(terms, delta_facts, pattern, binding)
+    end)
+  end
+
+  defp unify_matching_facts(terms, delta_facts, pattern, binding) do
+    delta_facts
+    |> Enum.filter(fn {_pred, tuple} -> matches_pattern?(tuple, pattern) end)
+    |> Enum.flat_map(fn {_pred, tuple} ->
+      case Unification.unify(terms, tuple, binding) do
+        {:ok, new_binding} -> [new_binding]
+        :fail -> []
+      end
+    end)
+  end
+
+  defp matches_pattern?(tuple, pattern) when length(tuple) == length(pattern) do
+    Enum.zip(tuple, pattern)
+    |> Enum.all?(fn
+      {_, :_} -> true
+      {a, a} -> true
+      {_, _} -> false
+    end)
+  end
+
+  defp matches_pattern?(_, _), do: false
+
   # Evaluate body goals, building up bindings
   defp evaluate_body([], _storage, _storage_mod, bindings), do: bindings
 
@@ -307,14 +389,14 @@ defmodule Datalox.Evaluator do
   # Evaluate a single goal against current bindings
   defp evaluate_goal({predicate, terms}, storage, storage_mod, binding) do
     # Substitute known bindings into pattern
-    pattern = Enum.map(terms, fn term -> substitute(term, binding) end)
+    pattern = Enum.map(terms, fn term -> Unification.substitute(term, binding) end)
 
     # Query storage
     {:ok, results} = storage_mod.lookup(storage, predicate, pattern)
 
     # Unify results with pattern to extend bindings
     Enum.flat_map(results, fn tuple ->
-      case unify(terms, tuple, binding) do
+      case Unification.unify(terms, tuple, binding) do
         {:ok, new_binding} -> [new_binding]
         :fail -> []
       end
@@ -331,7 +413,7 @@ defmodule Datalox.Evaluator do
   end
 
   defp negation_absent?({pred, terms}, binding, storage, storage_mod) do
-    pattern = Enum.map(terms, fn term -> substitute(term, binding) end)
+    pattern = Enum.map(terms, fn term -> Unification.substitute(term, binding) end)
     {:ok, results} = storage_mod.lookup(storage, pred, pattern)
     Enum.empty?(results)
   end
@@ -382,9 +464,13 @@ defmodule Datalox.Evaluator do
   end
 
   defp evaluate_guard({op, left, right}, binding) do
-    l = eval_expr(left, binding)
-    r = eval_expr(right, binding)
-    apply_comparison(op, l, r)
+    try do
+      l = eval_expr(left, binding)
+      r = eval_expr(right, binding)
+      apply_comparison(op, l, r)
+    rescue
+      ArithmeticError -> false
+    end
   end
 
   defp eval_expr(v, binding) when is_atom(v) do
@@ -408,45 +494,6 @@ defmodule Datalox.Evaluator do
   defp apply_comparison(:!=, l, r), do: l != r
   defp apply_comparison(:=, l, r), do: l == r
 
-  # Substitute variables in term using binding
-  defp substitute(term, binding) when is_atom(term) do
-    if variable?(term) do
-      Map.get(binding, term, :_)
-    else
-      term
-    end
-  end
-
-  defp substitute(term, _binding), do: term
-
-  # Unify terms with values, extending binding
-  defp unify([], [], binding), do: {:ok, binding}
-
-  defp unify([term | terms], [value | values], binding) do
-    case unify_one(term, value, binding) do
-      {:ok, new_binding} -> unify(terms, values, new_binding)
-      :fail -> :fail
-    end
-  end
-
-  defp unify_one(:_, _value, binding), do: {:ok, binding}
-
-  defp unify_one(term, value, binding) when is_atom(term) do
-    if variable?(term) do
-      case Map.fetch(binding, term) do
-        {:ok, ^value} -> {:ok, binding}
-        {:ok, _other} -> :fail
-        :error -> {:ok, Map.put(binding, term, value)}
-      end
-    else
-      if term == value, do: {:ok, binding}, else: :fail
-    end
-  end
-
-  defp unify_one(term, value, binding) do
-    if term == value, do: {:ok, binding}, else: :fail
-  end
-
   # Instantiate head with binding
   defp instantiate_head({predicate, terms}, binding) do
     values = Enum.map(terms, fn term -> substitute_value(term, binding) end)
@@ -454,7 +501,7 @@ defmodule Datalox.Evaluator do
   end
 
   defp substitute_value(term, binding) when is_atom(term) do
-    if variable?(term) do
+    if Unification.variable?(term) do
       Map.fetch!(binding, term)
     else
       term
@@ -462,12 +509,6 @@ defmodule Datalox.Evaluator do
   end
 
   defp substitute_value(term, _binding), do: term
-
-  # Check if term is a variable (uppercase atom)
-  defp variable?(term) when is_atom(term) do
-    str = Atom.to_string(term)
-    String.match?(str, ~r/^[A-Z]/)
-  end
 
   # Group rules by head predicate — rules with same head predicate must be
   # sequential, but different head predicates can run in parallel.

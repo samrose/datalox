@@ -48,9 +48,14 @@ defmodule Datalox.Storage do
               {:ok, state()} | {:error, term()}
 
   @doc """
+  Return a list of all predicates that have stored facts.
+  """
+  @callback all_predicates(state()) :: {:ok, [predicate()]}
+
+  @doc """
   Clean up storage resources.
   """
   @callback terminate(state()) :: :ok
 
-  @optional_callbacks terminate: 1, count: 2, create_index: 3
+  @optional_callbacks terminate: 1, count: 2, create_index: 3, all_predicates: 1
 end

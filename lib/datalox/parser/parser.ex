@@ -10,14 +10,31 @@ defmodule Datalox.Parser.Parser do
 
   @type parse_result :: {:fact, {atom(), list()}} | {:rule, Rule.t()}
 
+  @max_atoms 10_000
+
   @doc """
   Parses a Datalog string into facts and rules.
+
+  ## Options
+
+    * `:max_atoms` - Maximum number of unique atoms/variables allowed.
+      Defaults to #{@max_atoms}. Protects against atom table exhaustion
+      from untrusted input.
+
   """
-  @spec parse(String.t()) :: {:ok, [parse_result()]} | {:error, term()}
-  def parse(input) do
+  @spec parse(String.t(), keyword()) :: {:ok, [parse_result()]} | {:error, term()}
+  def parse(input, opts \\ []) do
+    max_atoms = Keyword.get(opts, :max_atoms, @max_atoms)
+
     case Lexer.tokenize(input) do
       {:ok, tokens, "", _, _, _} ->
-        parse_tokens(tokens, [])
+        atom_count = count_unique_atoms(tokens)
+
+        if atom_count > max_atoms do
+          {:error, {:too_many_atoms, atom_count, max_atoms}}
+        else
+          parse_tokens(tokens, [])
+        end
 
       {:error, reason, _, _, _, _} ->
         {:error, {:lexer_error, reason}}
@@ -26,13 +43,26 @@ defmodule Datalox.Parser.Parser do
 
   @doc """
   Parses a .dl file into facts and rules.
+
+  Accepts the same options as `parse/2`.
   """
-  @spec parse_file(String.t()) :: {:ok, [parse_result()]} | {:error, term()}
-  def parse_file(path) do
+  @spec parse_file(String.t(), keyword()) :: {:ok, [parse_result()]} | {:error, term()}
+  def parse_file(path, opts \\ []) do
     case File.read(path) do
-      {:ok, content} -> parse(content)
+      {:ok, content} -> parse(content, opts)
       {:error, reason} -> {:error, {:file_error, reason}}
     end
+  end
+
+  defp count_unique_atoms(tokens) do
+    tokens
+    |> Enum.flat_map(fn
+      {:atom, name} -> [name]
+      {:var, name} -> [name]
+      _ -> []
+    end)
+    |> Enum.uniq()
+    |> length()
   end
 
   # Parse token stream

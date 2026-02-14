@@ -33,7 +33,28 @@ defmodule Datalox.ExplainTest do
       explanation = Datalox.explain(db, {:ancestor, ["alice", "bob"]})
 
       assert explanation.fact == {:ancestor, ["alice", "bob"]}
-      assert explanation.derivation != :base
+      assert explanation.rule == :ancestor
+      assert is_list(explanation.derivation)
+      assert [_ | _] = explanation.derivation
+
+      # The body goal is parent("alice", "bob") which is a base fact
+      [body_fact | _] = explanation.derivation
+      assert body_fact.fact == {:parent, ["alice", "bob"]}
+      assert body_fact.derivation == :base
+    end
+
+    test "explains a transitively derived fact with sub-derivations", %{db: db} do
+      explanation = Datalox.explain(db, {:ancestor, ["alice", "carol"]})
+
+      assert explanation.fact == {:ancestor, ["alice", "carol"]}
+      assert explanation.rule == :ancestor
+      assert is_list(explanation.derivation)
+
+      # Should have sub-derivations (parent + ancestor body goals)
+      derivation_facts = Enum.map(explanation.derivation, & &1.fact)
+
+      # One body goal must be a parent fact, the other an ancestor
+      assert Enum.any?(derivation_facts, fn {pred, _} -> pred == :parent end)
     end
 
     test "returns nil for non-existent fact", %{db: db} do

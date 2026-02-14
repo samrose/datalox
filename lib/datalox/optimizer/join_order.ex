@@ -1,10 +1,5 @@
 defmodule Datalox.Optimizer.JoinOrder do
-  @moduledoc """
-  Cost-based join ordering for Datalog rule bodies.
-
-  Reorders body goals to evaluate smaller (cheaper) relations first,
-  taking into account which variables are already bound from earlier goals.
-  """
+  @moduledoc false
 
   @doc """
   Reorders body goals by estimated cost (relation cardinality).

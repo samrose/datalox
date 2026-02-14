@@ -1,6 +1,12 @@
 defmodule Datalox.Metrics do
   @moduledoc """
   Metrics collection for Datalox using Telemetry.
+
+  Emits telemetry events and maintains ETS-based counters for:
+  - `[:datalox, :query]` - fact queries
+  - `[:datalox, :assert]` - fact assertions
+  - `[:datalox, :retract]` - fact retractions
+  - `[:datalox, :load_rules]` - rule loading
   """
 
   use GenServer
@@ -21,11 +27,61 @@ defmodule Datalox.Metrics do
   """
   @spec record_query(atom(), atom()) :: :ok
   def record_query(db_name, predicate) do
-    key = {db_name, :queries}
-    :ets.update_counter(@table_name, key, {2, 1}, {key, 0})
+    increment_counter(db_name, :queries)
+    increment_counter(db_name, {:predicate, predicate})
 
-    pred_key = {db_name, :predicate, predicate}
-    :ets.update_counter(@table_name, pred_key, {2, 1}, {pred_key, 0})
+    :telemetry.execute(
+      [:datalox, :query],
+      %{count: 1},
+      %{db: db_name, predicate: predicate}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Records an assertion event.
+  """
+  @spec record_assert(atom(), atom()) :: :ok
+  def record_assert(db_name, predicate) do
+    increment_counter(db_name, :assertions)
+
+    :telemetry.execute(
+      [:datalox, :assert],
+      %{count: 1},
+      %{db: db_name, predicate: predicate}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Records a retraction event.
+  """
+  @spec record_retract(atom(), atom()) :: :ok
+  def record_retract(db_name, predicate) do
+    increment_counter(db_name, :retractions)
+
+    :telemetry.execute(
+      [:datalox, :retract],
+      %{count: 1},
+      %{db: db_name, predicate: predicate}
+    )
+
+    :ok
+  end
+
+  @doc """
+  Records a rule loading event.
+  """
+  @spec record_load_rules(atom(), non_neg_integer()) :: :ok
+  def record_load_rules(db_name, rule_count) do
+    :telemetry.execute(
+      [:datalox, :load_rules],
+      %{count: rule_count},
+      %{db: db_name}
+    )
+
     :ok
   end
 
@@ -34,7 +90,6 @@ defmodule Datalox.Metrics do
   """
   @spec get_stats(pid() | atom()) :: map()
   def get_stats(db) when is_pid(db) do
-    # Try to get the name from the Database state
     case GenServer.call(db, :get_name) do
       {:ok, name} -> get_stats(name)
       _ -> get_stats(:unknown)
@@ -44,15 +99,23 @@ defmodule Datalox.Metrics do
   end
 
   def get_stats(db_name) do
-    query_count =
-      case :ets.lookup(@table_name, {db_name, :queries}) do
-        [{_, count}] -> count
-        [] -> 0
-      end
-
     %{
-      total_queries: query_count,
+      total_queries: lookup_counter(db_name, :queries),
+      total_assertions: lookup_counter(db_name, :assertions),
+      total_retractions: lookup_counter(db_name, :retractions),
       facts: %{base: 0, derived: 0}
     }
+  end
+
+  defp increment_counter(db_name, metric) do
+    key = {db_name, metric}
+    :ets.update_counter(@table_name, key, {2, 1}, {key, 0})
+  end
+
+  defp lookup_counter(db_name, metric) do
+    case :ets.lookup(@table_name, {db_name, metric}) do
+      [{_, count}] -> count
+      [] -> 0
+    end
   end
 end

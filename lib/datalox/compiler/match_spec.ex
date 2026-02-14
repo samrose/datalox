@@ -1,5 +1,5 @@
 defmodule Datalox.Compiler.MatchSpec do
-  @moduledoc "Compile Datalog patterns to ETS match specifications."
+  @moduledoc false
 
   @doc """
   Compile a pattern (list of values or :_ wildcards) into an ETS match spec.

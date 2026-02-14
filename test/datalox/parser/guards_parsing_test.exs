@@ -155,7 +155,11 @@ defmodule Datalox.Parser.GuardsParsingTest do
       """
 
       {:ok, [{:rule, rule}]} = Parser.parse(input)
-      assert rule.body == [{:total, [:Node, :CpuTotal, :MemTotal]}, {:used, [:Node, :CpuUsed, :MemUsed]}]
+
+      assert rule.body == [
+               {:total, [:Node, :CpuTotal, :MemTotal]},
+               {:used, [:Node, :CpuUsed, :MemUsed]}
+             ]
 
       assert rule.guards == [
                {:=, :CpuFree, {:-, :CpuTotal, :CpuUsed}},
