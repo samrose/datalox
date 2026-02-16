@@ -464,13 +464,11 @@ defmodule Datalox.Evaluator do
   end
 
   defp evaluate_guard({op, left, right}, binding) do
-    try do
-      l = eval_expr(left, binding)
-      r = eval_expr(right, binding)
-      apply_comparison(op, l, r)
-    rescue
-      ArithmeticError -> false
-    end
+    l = eval_expr(left, binding)
+    r = eval_expr(right, binding)
+    apply_comparison(op, l, r)
+  rescue
+    ArithmeticError -> false
   end
 
   defp eval_expr(v, binding) when is_atom(v) do

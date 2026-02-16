@@ -1,8 +1,8 @@
 defmodule Datalox.Parser.GuardsParsingTest do
   use ExUnit.Case, async: true
 
-  alias Datalox.Parser.Parser
   alias Datalox.Evaluator
+  alias Datalox.Parser.Parser
   alias Datalox.Storage.ETS
 
   describe "comparison guard parsing" do
