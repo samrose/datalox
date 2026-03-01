@@ -196,7 +196,13 @@ defmodule Datalox.Database do
         {:reply, {:error, {:safety_violations, errors}}, state}
 
       :ok ->
-        case Evaluator.evaluate(rules, state.storage_state, state.storage_mod) do
+        # Clear all derived predicates before re-evaluating.
+        # Without this, stale derived facts (e.g. from negation changes)
+        # persist because the evaluator only adds, never removes.
+        derived_preds = derived_predicates(rules)
+        clean_storage = clear_predicates(state.storage_mod, state.storage_state, derived_preds)
+
+        case Evaluator.evaluate(rules, clean_storage, state.storage_mod) do
           {:ok, _derived, new_storage_state} ->
             Datalox.Metrics.record_load_rules(state.name, length(rules))
             new_state = %{state | rules: rules, storage_state: new_storage_state}
@@ -330,50 +336,108 @@ defmodule Datalox.Database do
   end
 
   defp incrementally_derive(state, predicate, tuple) do
+    # Check for rules affected by positive body references
     affected = Incremental.affected_rules(state.rules, predicate)
 
-    if affected == [] do
+    # Check for rules that negate this predicate — asserting a negated fact
+    # may invalidate existing derived facts
+    negation_affected = rules_negating(state.rules, predicate)
+
+    if affected == [] and negation_affected == [] do
       state
     else
-      existing_facts = build_facts_map(state)
+      # If any affected rule has negations, compute_delta can't handle them
+      # correctly, so fall back to full re-derivation for correctness.
+      affected_have_negations =
+        Enum.any?(affected, fn rule -> rule.negations != [] end)
 
-      new_facts =
-        Enum.flat_map(affected, fn rule ->
-          Incremental.compute_delta(rule, {predicate, tuple}, existing_facts)
+      if negation_affected != [] or affected_have_negations do
+        full_rederive(state)
+      else
+        # Pure positive derivation with fixpoint iteration
+        derive_to_fixpoint(state, affected, [{predicate, tuple}])
+      end
+    end
+  end
+
+  defp incrementally_retract(state, predicate, _tuple) do
+    affected = Incremental.affected_rules(state.rules, predicate)
+    negation_affected = rules_negating(state.rules, predicate)
+
+    if affected == [] and negation_affected == [] do
+      state
+    else
+      # Retraction with recursive rules requires full re-derivation for
+      # correctness. The per-rule compute_retractions approach cannot
+      # correctly handle transitive chains or multi-rule derivation paths.
+      full_rederive(state)
+    end
+  end
+
+  # Iterate delta derivation to a fixpoint for recursive rules.
+  # Each pass may produce new facts that enable further derivations.
+  defp derive_to_fixpoint(state, _affected_rules, []) do
+    state
+  end
+
+  defp derive_to_fixpoint(state, affected_rules, delta_facts) do
+    existing_facts = build_facts_map(state)
+
+    new_facts =
+      Enum.flat_map(delta_facts, fn delta ->
+        Enum.flat_map(affected_rules, fn rule ->
+          Incremental.compute_delta(rule, delta, existing_facts)
         end)
-        |> Enum.uniq()
+      end)
+      |> Enum.uniq()
 
+    # Filter out facts that already exist in storage
+    truly_new =
+      Enum.reject(new_facts, fn {pred, args} ->
+        case state.storage_mod.lookup(state.storage_state, pred, args) do
+          {:ok, [_ | _]} -> true
+          _ -> false
+        end
+      end)
+
+    if truly_new == [] do
+      state
+    else
       new_storage =
-        Enum.reduce(new_facts, state.storage_state, fn {pred, args}, st ->
+        Enum.reduce(truly_new, state.storage_state, fn {pred, args}, st ->
           {:ok, st} = state.storage_mod.insert(st, pred, args)
           st
         end)
 
-      %{state | storage_state: new_storage}
+      state = %{state | storage_state: new_storage}
+
+      # Recurse: the newly derived facts may trigger further derivations
+      # (for recursive rules). Only check rules affected by the derived predicates.
+      derived_preds = truly_new |> Enum.map(fn {pred, _} -> pred end) |> Enum.uniq()
+
+      next_affected =
+        Enum.filter(state.rules, fn rule ->
+          MapSet.member?(Rule.depends_on(rule), Enum.at(derived_preds, 0)) or
+            Enum.any?(derived_preds, &MapSet.member?(Rule.depends_on(rule), &1))
+        end)
+
+      derive_to_fixpoint(state, next_affected, truly_new)
     end
   end
 
-  defp incrementally_retract(state, predicate, tuple) do
-    affected = Incremental.affected_rules(state.rules, predicate)
+  # Full re-derivation: clear all derived predicates and re-evaluate from
+  # base facts. Used when incremental maintenance cannot guarantee correctness
+  # (negation changes, retraction with recursive rules).
+  defp full_rederive(state) do
+    derived_preds = derived_predicates(state.rules)
+    clean_storage = clear_predicates(state.storage_mod, state.storage_state, derived_preds)
 
-    if affected == [] do
-      state
-    else
-      existing_facts = build_facts_map(state)
+    case Evaluator.evaluate(state.rules, clean_storage, state.storage_mod) do
+      {:ok, _derived, new_storage_state} ->
+        %{state | storage_state: new_storage_state}
 
-      retractions =
-        Enum.flat_map(affected, fn rule ->
-          Incremental.compute_retractions(rule, {predicate, tuple}, existing_facts)
-        end)
-        |> Enum.uniq()
-
-      new_storage =
-        Enum.reduce(retractions, state.storage_state, fn {pred, args}, st ->
-          {:ok, st} = state.storage_mod.delete(st, pred, args)
-          st
-        end)
-
-      %{state | storage_state: new_storage}
+      {:error, _reason} ->
+        state
     end
   end
 
@@ -408,4 +472,35 @@ defmodule Datalox.Database do
   end
 
   defp matches_pattern?(_, _), do: false
+
+  # Returns the set of predicates that appear as rule heads (derived predicates).
+  defp derived_predicates(rules) do
+    rules
+    |> Enum.map(fn rule -> elem(rule.head, 0) end)
+    |> Enum.uniq()
+  end
+
+  # Returns rules that have the given predicate in their negations.
+  defp rules_negating(rules, predicate) do
+    Enum.filter(rules, fn rule ->
+      Enum.any?(rule.negations, fn {pred, _} -> pred == predicate end)
+    end)
+  end
+
+  # Clears all facts for the given predicates from storage.
+  defp clear_predicates(storage_mod, storage_state, predicates) do
+    Enum.reduce(predicates, storage_state, fn pred, st ->
+      case storage_mod.all(st, pred) do
+        {:ok, facts} -> delete_facts(storage_mod, st, pred, facts)
+        _ -> st
+      end
+    end)
+  end
+
+  defp delete_facts(storage_mod, state, pred, facts) do
+    Enum.reduce(facts, state, fn tuple, s ->
+      {:ok, s} = storage_mod.delete(s, pred, tuple)
+      s
+    end)
+  end
 end
