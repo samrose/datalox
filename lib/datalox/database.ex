@@ -491,15 +491,16 @@ defmodule Datalox.Database do
   defp clear_predicates(storage_mod, storage_state, predicates) do
     Enum.reduce(predicates, storage_state, fn pred, st ->
       case storage_mod.all(st, pred) do
-        {:ok, facts} ->
-          Enum.reduce(facts, st, fn tuple, s ->
-            {:ok, s} = storage_mod.delete(s, pred, tuple)
-            s
-          end)
-
-        _ ->
-          st
+        {:ok, facts} -> delete_facts(storage_mod, st, pred, facts)
+        _ -> st
       end
+    end)
+  end
+
+  defp delete_facts(storage_mod, state, pred, facts) do
+    Enum.reduce(facts, state, fn tuple, s ->
+      {:ok, s} = storage_mod.delete(s, pred, tuple)
+      s
     end)
   end
 end
